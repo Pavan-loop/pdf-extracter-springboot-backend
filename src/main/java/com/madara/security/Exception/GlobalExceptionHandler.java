@@ -1,9 +1,6 @@
 package com.madara.security.Exception;
 
-import com.madara.security.Exception.type.SessionNotFoundException;
-import com.madara.security.Exception.type.UnauthorizedException;
-import com.madara.security.Exception.type.UserAlreadyExistException;
-import com.madara.security.Exception.type.UserNotFoundException;
+import com.madara.security.Exception.type.*;
 import com.madara.security.response.DTO.ApiResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +37,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(SessionNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleSessionNotFoundException(SessionNotFoundException e) {
+        ApiResponse<Void> response =
+                ApiResponse.error(e.getMessage(), HttpStatus.NOT_FOUND);
+        return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(PdfNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePdfNotFoundException(PdfNotFoundException e) {
         ApiResponse<Void> response =
                 ApiResponse.error(e.getMessage(), HttpStatus.NOT_FOUND);
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);

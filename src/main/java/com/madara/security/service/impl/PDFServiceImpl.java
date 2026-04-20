@@ -1,6 +1,7 @@
 package com.madara.security.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.madara.security.Exception.type.PdfNotFoundException;
 import com.madara.security.model.PdfResult;
 import com.madara.security.model.Session;
 import com.madara.security.model.User;
@@ -26,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +36,12 @@ public class PDFServiceImpl implements PDFService {
 
     @Value("${application.file.upload-dir}")
     private String uploadDir;
+
+    @Value("${application.kafka.topic.pdf-request}")
+    private String pdfRequestTopic;
+
+    @Value("${application.kafka.topic.pdf-response}")
+    private String pdfResponseTopic;
 
     private final KafkaTemplate<String, PDFFilePathAndUserIDDTO> kafkaTemplate;
     private final ObjectMapper objectMapper;
@@ -60,10 +68,11 @@ public class PDFServiceImpl implements PDFService {
 
         Path uploadPath = Paths.get(uploadDir);
         Files.createDirectories(uploadPath);
-        Path filePath = uploadPath.resolve(originalFilename);
+
 
         long userId = SecurityUtils.getCurrentUserId();
-        String jobId = String.valueOf(System.currentTimeMillis());
+        String jobId = UUID.randomUUID().toString();
+        Path filePath = uploadPath.resolve(jobId + "_" + originalFilename);
 
         pdf.transferTo(filePath.toFile());
 
@@ -77,10 +86,10 @@ public class PDFServiceImpl implements PDFService {
         pdfResultRepository.save(pendingResult);
 
         kafkaTemplate.send(
-                "pdf-topic",
+                pdfRequestTopic,
                 jobId,
                 PDFFilePathAndUserIDDTO.builder()
-                        .jobID(Long.parseLong(jobId))
+                        .jobId(jobId)
                         .userId(userId)
                         .pdfFilePath(filePath.toString())
                         .documentType("PURCHASE_ORDER")
@@ -91,7 +100,7 @@ public class PDFServiceImpl implements PDFService {
     }
 
     @Override
-    @KafkaListener(topics = "pdf-response", groupId = "spring-pdf-group")
+    @KafkaListener(topics = "${application.kafka.topic.pdf-response}", groupId = "spring-pdf-group")
     public void receivesData(ConsumerRecord<String, String> record) {
         String jobId = record.key();
         log.info("Received result from Python worker for jobId={}", jobId);
@@ -117,11 +126,9 @@ public class PDFServiceImpl implements PDFService {
             log.info("DB updated for jobId={}, status={}, docType={}",
                     jobId, result.getStatus(), result.getDocumentType());
 
-            // FIX: convertAndSendToUser routes by principal name = email, NOT numeric userId.
-            // Look up the user's email from DB so the message reaches the right STOMP session.
             String userEmail = userRepository.findById(pdfResult.getUserId())
                     .map(User::getEmail)
-                    .orElse(String.valueOf(pdfResult.getUserId())); // fallback — will fail silently
+                    .orElse(String.valueOf(pdfResult.getUserId()));
 
             result.setJobId(jobId);
             webSocketService.pushResultToUser(userEmail, result);
@@ -141,10 +148,7 @@ public class PDFServiceImpl implements PDFService {
     public List<PdfResult> getPdfsRelatedToSession(Long sessionId) {
         List<PdfResult> pdfResults = pdfResultRepository.getPdfResultBySessionId(sessionId);
 
-        if (!pdfResults.isEmpty()) {
-            return pdfResults;
-        }
-        return null;
+        return pdfResults.isEmpty() ? List.of() : pdfResults;
     }
 
     @Override
@@ -165,10 +169,11 @@ public class PDFServiceImpl implements PDFService {
 
         Path uploadPath = Paths.get(uploadDir);
         Files.createDirectories(uploadPath);
-        Path filePath = uploadPath.resolve(originalFilename);
+
 
         long userId = SecurityUtils.getCurrentUserId();
-        String jobId = String.valueOf(System.currentTimeMillis());
+        String jobId = UUID.randomUUID().toString();
+        Path filePath = uploadPath.resolve(jobId + "_" + originalFilename);
 
         pdf.transferTo(filePath.toFile());
 
@@ -179,16 +184,16 @@ public class PDFServiceImpl implements PDFService {
                 .userId(userId)
                 .filename(originalFilename)
                 .status("PENDING")
-                .documentType("PURCHASE_ORDER")
+                .documentType(session.getDocumentType().toString())
                 .session(session)
                 .build();
         pdfResultRepository.save(pendingResult);
 
         kafkaTemplate.send(
-                "pdf-topic",
+                pdfRequestTopic,
                 jobId,
                 PDFFilePathAndUserIDDTO.builder()
-                        .jobID(Long.parseLong(jobId))
+                        .jobId(jobId)
                         .userId(userId)
                         .pdfFilePath(filePath.toString())
                         .documentType("PURCHASE_ORDER")
@@ -196,5 +201,18 @@ public class PDFServiceImpl implements PDFService {
         );
 
         log.info("PDF queued. jobId={}, userId={}, file={}", jobId, userId, originalFilename);
+    }
+
+    @Override
+    public void deletePdf(Long id) {
+        if (!pdfResultRepository.existsById(id)) {
+            throw new PdfNotFoundException();
+        }
+        pdfResultRepository.deleteById(id);
+    }
+
+    @Override
+    public void bulkDeleteId(List<Long> ids) {
+
     }
 }

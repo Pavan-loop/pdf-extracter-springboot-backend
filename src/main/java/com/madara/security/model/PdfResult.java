@@ -26,33 +26,26 @@ public class PdfResult {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Unique ID linking Kafka messages to this record
     @Column(name = "job_id", unique = true, nullable = false)
     private String jobId;
 
-    // The user who uploaded the PDF
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
     @Column(name = "filename")
     private String filename;
 
-    // INVOICE, BANK_STATEMENT, PURCHASE_ORDER, UNKNOWN
     @Column(name = "document_type")
     private String documentType;
 
-    // PENDING → PROCESSING → DONE / FAILED
     @Column(name = "status", nullable = false)
     @Builder.Default
     private String status = "PENDING";
 
-    // All extracted fields stored as flexible JSONB
-    // Handles nested objects and arrays (line items, transactions etc.)
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "extracted_data", columnDefinition = "jsonb")
     private Map<String, Object> extractedData;
 
-    // Populated if status = FAILED
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 

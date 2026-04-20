@@ -9,7 +9,7 @@ import lombok.Setter;
 @Setter
 @Builder
 public class PDFFilePathAndUserIDDTO {
-    private long jobID;
+    private String jobId;
     private String pdfFilePath;
     private long userId;
     private String documentType;

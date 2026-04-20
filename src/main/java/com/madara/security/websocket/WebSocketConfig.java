@@ -57,15 +57,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                             if (email != null) {
                                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
                                 if (jwtService.isTokenValid(jwt, userDetails)) {
-                                    // CRITICAL: Pass `email` (a String) as the principal — NOT the
-                                    // UserDetails object. AbstractAuthenticationToken.getName() calls
-                                    // principal.toString() when principal is not a java.security.Principal.
-                                    // UserDetails is not a Principal, so passing it gives
-                                    // "CustomUserDetails@3f4a2b" as the name — which never matches
-                                    // the email that WebSocketService uses in convertAndSendToUser().
                                     UsernamePasswordAuthenticationToken auth =
                                             new UsernamePasswordAuthenticationToken(
-                                                    email,    // ← email string, so getName() == email
+                                                    email,
                                                     null,
                                                     userDetails.getAuthorities()
                                             );
@@ -73,9 +67,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                                 }
                             }
                         } catch (Exception e) {
-                            // Invalid token — STOMP session proceeds without a principal.
-                            // The connection is allowed (WS endpoint is permitAll) but the
-                            // user will receive no messages since nothing routes to them.
                         }
                     }
                 }

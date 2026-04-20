@@ -53,11 +53,6 @@ public class JwtFilter extends OncePerRequestFilter {
             UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
             if (jwtService.isTokenValid(jwt, userDetails)) {
-                // FIX: Always set authentication from the JWT on every request.
-                // The old code checked `SecurityContextHolder.getContext().getAuthentication() == null`
-                // before setting auth — so if a stale context existed (from IF_REQUIRED session policy),
-                // it would skip this block entirely and the wrong user's identity would persist.
-                // Now we always overwrite with the identity from the current request's token.
                 UsernamePasswordAuthenticationToken authToken =
                         new UsernamePasswordAuthenticationToken(
                                 userDetails,

@@ -23,12 +23,6 @@ public class PDFController {
     private final PDFService pdfService;
     private final PdfResultRepository pdfResultRepository;
 
-    /**
-     * Upload one or multiple PDFs at once.
-     * Frontend sends: multipart/form-data with field name "files" (can repeat multiple times)
-     * Example curl:
-     *   curl -F "files=@po1.pdf" -F "files=@po2.pdf" http://localhost:8081/pdf/upload
-     */
     @PostMapping("/upload")
     public ResponseEntity<ApiResponse<Void>> uploadPDFs(
             @RequestParam("files") List<MultipartFile> files
@@ -53,7 +47,6 @@ public class PDFController {
         );
     }
 
-    // Poll for a specific job result (fallback if WebSocket disconnects)
     @GetMapping("/result/{jobId}")
     public ResponseEntity<ApiResponse<PdfResult>> getResult(
             @PathVariable String jobId
@@ -63,7 +56,6 @@ public class PDFController {
         return ResponseEntity.ok(ApiResponse.success(result, "Result fetched", HttpStatus.OK));
     }
 
-    // Get all PDFs uploaded by the currently logged-in user
     @GetMapping("/my-results")
     public ResponseEntity<ApiResponse<List<PdfResult>>> getMyResults() {
         long userId = SecurityUtils.getCurrentUserId();
@@ -102,5 +94,13 @@ public class PDFController {
                 ApiResponse.success(null, message, HttpStatus.OK),
                 HttpStatus.OK
         );
+    }
+
+    @DeleteMapping("/delete/{id}")
+    public ResponseEntity<ApiResponse<Void>> deletePdfById(
+            @PathVariable Long id
+    ) {
+        pdfService.deletePdf(id);
+        return ResponseEntity.ok(ApiResponse.success(null, "Deleted Successfully", HttpStatus.OK));
     }
 }

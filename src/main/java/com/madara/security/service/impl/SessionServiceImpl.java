@@ -60,7 +60,7 @@ public class SessionServiceImpl implements SessionService {
             throw new SessionNotFoundException();
         } catch (Exception e) {
             log.error(e.getMessage());
+            return List.of();
         }
-        return null;
     }
 }

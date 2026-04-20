@@ -40,7 +40,6 @@ public class User implements UserDetails, Principal {
     @Column(name = "email", unique = true)
     private String email;
 
-    // Nullable — Google users have no password
     @Column(name = "password")
     private String password;
 
@@ -50,14 +49,11 @@ public class User implements UserDetails, Principal {
     private boolean isAccountEnabled;
     private boolean isAccountNonLocked;
 
-    // LOCAL = registered with email/password
-    // GOOGLE = registered via Google OAuth
     @Enumerated(EnumType.STRING)
     @Column(name = "auth_provider", nullable = false)
     @Builder.Default
     private AuthProvider authProvider = AuthProvider.LOCAL;
 
-    // Google's unique user ID (sub claim) — null for LOCAL users
     @Column(name = "provider_id")
     private String providerId;
 
@@ -90,7 +86,6 @@ public class User implements UserDetails, Principal {
         return password;
     }
 
-    // getUsername() returns email — this is the Spring Security "username"
     @Override
     public String getUsername() {
         return email;

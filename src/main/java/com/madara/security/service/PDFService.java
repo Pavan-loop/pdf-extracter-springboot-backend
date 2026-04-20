@@ -12,4 +12,6 @@ public interface PDFService {
     void receivesData(ConsumerRecord<String, String> record);
     List<PdfResult> getPdfsRelatedToSession(Long sessionId);
     void StoreBySession(MultipartFile pdf, Long sessionId) throws IOException;
+    void deletePdf(Long id);
+    void bulkDeleteId(List<Long> ids);
 }
