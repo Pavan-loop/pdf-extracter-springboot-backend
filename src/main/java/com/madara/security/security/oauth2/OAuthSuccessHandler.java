@@ -90,7 +90,8 @@ public class OAuthSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
                 user.getId(),
                 user.getUsername(),
                 user.getPassword(),
-                user.getAuthorities()
+                user.getAuthorities(),
+                true
         );
 
         // Generate our standard JWT — from here everything works exactly like local login

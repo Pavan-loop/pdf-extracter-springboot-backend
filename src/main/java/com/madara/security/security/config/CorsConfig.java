@@ -16,7 +16,7 @@ public class CorsConfig {
         CorsConfiguration corsConfiguration = new CorsConfiguration();
 
         corsConfiguration.setAllowedOrigins(List.of(
-                "http://localhost:3000"
+                "http://localhost:3000", "http://localhost:3001"
         ));
 
         corsConfiguration.setExposedHeaders(List.of("Location"));

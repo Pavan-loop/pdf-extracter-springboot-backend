@@ -49,6 +49,13 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
 
+    @ExceptionHandler(InvalidOtpException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidOtpException(InvalidOtpException e) {
+        ApiResponse<Void> response =
+                ApiResponse.error(e.getMessage(), HttpStatus.BAD_REQUEST);
+        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Map<String, String>>> handleValidation(
             MethodArgumentNotValidException ex) {

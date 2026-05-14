@@ -6,6 +6,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.security.Principal;
@@ -49,6 +50,10 @@ public class User implements UserDetails, Principal {
     private boolean isAccountEnabled;
     private boolean isAccountNonLocked;
 
+    @Builder.Default
+    @Column(name = "is_seeded_admin")
+    private boolean seededAdmin = false;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "auth_provider", nullable = false)
     @Builder.Default
@@ -77,7 +82,7 @@ public class User implements UserDetails, Principal {
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         return roles.stream()
-                .map(role -> (GrantedAuthority) role::getAuthority)
+                .map(role -> new SimpleGrantedAuthority(role.getAuthority()))
                 .collect(Collectors.toList());
     }
 
