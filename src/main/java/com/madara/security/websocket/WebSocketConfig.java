@@ -2,6 +2,7 @@ package com.madara.security.websocket;
 
 import com.madara.security.security.jwt.JwtService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -21,6 +22,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @Configuration
 @EnableWebSocketMessageBroker
 @RequiredArgsConstructor
+@Slf4j
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final JwtService jwtService;
@@ -37,7 +39,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns("http://localhost:3000", "http://localhost:3001")
-                .withSockJS();
+                .withSockJS()
+                .setHeartbeatTime(25000);
     }
 
     @Override
@@ -48,28 +51,47 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 StompHeaderAccessor accessor =
                         MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
-                if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
+                if (accessor == null) return message;
+
+                if (StompCommand.CONNECT.equals(accessor.getCommand())) {
                     String authHeader = accessor.getFirstNativeHeader("Authorization");
-                    if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                        String jwt = authHeader.substring(7);
-                        try {
-                            String email = jwtService.extractEmail(jwt);
-                            if (email != null) {
-                                UserDetails userDetails = userDetailsService.loadUserByUsername(email);
-                                if (jwtService.isTokenValid(jwt, userDetails)) {
-                                    UsernamePasswordAuthenticationToken auth =
-                                            new UsernamePasswordAuthenticationToken(
-                                                    email,
-                                                    null,
-                                                    userDetails.getAuthorities()
-                                            );
-                                    accessor.setUser(auth);
-                                }
-                            }
-                        } catch (Exception e) {
+
+                    if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                        log.warn("WebSocket CONNECT rejected: missing or invalid Authorization header");
+                        throw new IllegalArgumentException("Missing Authorization header");
+                    }
+
+                    String jwt = authHeader.substring(7);
+                    try {
+                        String email = jwtService.extractEmail(jwt);
+                        if (email == null) throw new IllegalArgumentException("Email not found in token");
+
+                        UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+
+                        if (!jwtService.isTokenValid(jwt, userDetails)) {
+                            throw new IllegalArgumentException("Token is expired or invalid");
                         }
+
+                        UsernamePasswordAuthenticationToken auth =
+                                new UsernamePasswordAuthenticationToken(
+                                        email,
+                                        null,
+                                        userDetails.getAuthorities()
+                                );
+                        accessor.setUser(auth);
+                        log.info("WebSocket CONNECT authenticated: {}", email);
+
+                    } catch (Exception e) {
+                        log.error("WebSocket CONNECT rejected: {}", e.getMessage());
+                        throw new IllegalArgumentException("Invalid token: " + e.getMessage());
                     }
                 }
+
+                if (StompCommand.DISCONNECT.equals(accessor.getCommand())) {
+                    String user = accessor.getUser() != null ? accessor.getUser().getName() : "unknown";
+                    log.info("WebSocket DISCONNECT: {}", user);
+                }
+
                 return message;
             }
         });

@@ -7,6 +7,7 @@ import com.madara.security.response.DTO.admin.AdminPdfDTO;
 import com.madara.security.response.DTO.admin.AdminStatsDTO;
 import com.madara.security.response.DTO.admin.AdminUserDetailDTO;
 import com.madara.security.response.DTO.admin.AdminUserSummaryDTO;
+import com.madara.security.response.DTO.admin.UpdatePlanRequest;
 import com.madara.security.security.authentication.AuthenticationService;
 import com.madara.security.security.authentication.RegistrationRequest;
 import com.madara.security.service.AdminService;
@@ -103,5 +104,20 @@ public class AdminController {
     public ResponseEntity<ApiResponse<List<AdminPdfDTO>>> getRecentActivity() {
         List<AdminPdfDTO> result = adminService.getRecentActivity();
         return ResponseEntity.ok(ApiResponse.success(result, "Recent activity fetched", HttpStatus.OK));
+    }
+
+    /**
+     * Update a user's plan. Use this to upgrade to SUBSCRIBER or assign DEV plan.
+     * PATCH /admin/users/{userId}/plan
+     * Body: { "plan": "SUBSCRIBER", "subscriptionDays": 30 }
+     */
+    @PatchMapping("/users/{userId}/plan")
+    public ResponseEntity<ApiResponse<Void>> updateUserPlan(
+            @PathVariable Long userId,
+            @RequestBody @Valid UpdatePlanRequest request
+    ) {
+        adminService.updateUserPlan(userId, request);
+        return ResponseEntity.ok(ApiResponse.success(null,
+                "User plan updated to " + request.getPlan().name(), HttpStatus.OK));
     }
 }

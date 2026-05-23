@@ -2,6 +2,8 @@ package com.madara.security.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.madara.security.Exception.type.PdfNotFoundException;
+import com.madara.security.Exception.type.QuotaExceededException;
+import com.madara.security.Exception.type.UserNotFoundException;
 import com.madara.security.model.PdfResult;
 import com.madara.security.model.Session;
 import com.madara.security.model.User;
@@ -10,22 +12,26 @@ import com.madara.security.repository.SessionRepository;
 import com.madara.security.repository.UserRepository;
 import com.madara.security.response.DTO.PDFFilePathAndUserIDDTO;
 import com.madara.security.response.DTO.PdfResultDTO;
+import com.madara.security.service.FileStorageService;
 import com.madara.security.service.PDFService;
 import com.madara.security.utility.SecurityUtils;
 import com.madara.security.websocket.WebSocketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,14 +40,8 @@ import java.util.UUID;
 @Slf4j
 public class PDFServiceImpl implements PDFService {
 
-    @Value("${application.file.upload-dir}")
-    private String uploadDir;
-
     @Value("${application.kafka.topic.pdf-request}")
     private String pdfRequestTopic;
-
-    @Value("${application.kafka.topic.pdf-response}")
-    private String pdfResponseTopic;
 
     private final KafkaTemplate<String, PDFFilePathAndUserIDDTO> kafkaTemplate;
     private final ObjectMapper objectMapper;
@@ -49,54 +49,81 @@ public class PDFServiceImpl implements PDFService {
     private final UserRepository userRepository;
     private final WebSocketService webSocketService;
     private final SessionRepository sessionRepository;
+    private final FileStorageService fileStorageService;
 
     @Override
+    @Transactional
     public void Store(MultipartFile pdf) throws IOException {
-        if (pdf.isEmpty()) {
-            throw new IllegalArgumentException("Uploaded file is empty");
-        }
-
-        String contentType = pdf.getContentType();
-        if (contentType == null || !contentType.equals("application/pdf")) {
-            throw new IllegalArgumentException("Only PDF files are accepted: " + pdf.getOriginalFilename());
-        }
-
-        String originalFilename = pdf.getOriginalFilename();
-        if (originalFilename == null || originalFilename.isBlank()) {
-            throw new IllegalArgumentException("Invalid filename");
-        }
-
-        Path uploadPath = Paths.get(uploadDir);
-        Files.createDirectories(uploadPath);
-
-
+        validateFile(pdf);
         long userId = SecurityUtils.getCurrentUserId();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
+
+        int pageCount = countPages(pdf);
+        enforceQuota(user, pageCount);
+
         String jobId = UUID.randomUUID().toString();
-        Path filePath = uploadPath.resolve(jobId + "_" + originalFilename);
+        String storedPath = fileStorageService.store(jobId, pdf.getOriginalFilename(), pdf);
 
-        pdf.transferTo(filePath.toFile());
-
-        PdfResult pendingResult = PdfResult.builder()
+        PdfResult pending = PdfResult.builder()
                 .jobId(jobId)
                 .userId(userId)
-                .filename(originalFilename)
+                .filename(pdf.getOriginalFilename())
                 .status("PENDING")
                 .documentType("PURCHASE_ORDER")
+                .filePath(storedPath)
                 .build();
-        pdfResultRepository.save(pendingResult);
+        pdfResultRepository.save(pending);
 
-        kafkaTemplate.send(
-                pdfRequestTopic,
-                jobId,
+        kafkaTemplate.send(pdfRequestTopic, jobId,
                 PDFFilePathAndUserIDDTO.builder()
                         .jobId(jobId)
                         .userId(userId)
-                        .pdfFilePath(filePath.toString())
+                        .pdfFilePath(storedPath)
                         .documentType("PURCHASE_ORDER")
-                        .build()
-        );
+                        .isSession(false)
+                        .build());
 
-        log.info("PDF queued. jobId={}, userId={}, file={}", jobId, userId, originalFilename);
+        log.info("PDF queued jobId={} userId={} file={} pages={}", jobId, userId, pdf.getOriginalFilename(), pageCount);
+    }
+
+    @Override
+    @Transactional
+    public void StoreBySession(MultipartFile pdf, Long sessionId) throws IOException {
+        validateFile(pdf);
+        long userId = SecurityUtils.getCurrentUserId();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
+
+        int pageCount = countPages(pdf);
+        enforceQuota(user, pageCount);
+
+        Session session = sessionRepository.getSessionById(sessionId);
+
+        String jobId = UUID.randomUUID().toString();
+        String storedPath = fileStorageService.store(jobId, pdf.getOriginalFilename(), pdf);
+
+        PdfResult pending = PdfResult.builder()
+                .jobId(jobId)
+                .userId(userId)
+                .filename(pdf.getOriginalFilename())
+                .status("PENDING")
+                .documentType(session.getDocumentType().toString())
+                .filePath(storedPath)
+                .session(session)
+                .build();
+        pdfResultRepository.save(pending);
+
+        kafkaTemplate.send(pdfRequestTopic, jobId,
+                PDFFilePathAndUserIDDTO.builder()
+                        .jobId(jobId)
+                        .userId(userId)
+                        .pdfFilePath(storedPath)
+                        .documentType(session.getDocumentType().toString())
+                        .isSession(true)
+                        .build());
+
+        log.info("PDF queued jobId={} userId={} sessionId={} file={}", jobId, userId, sessionId, pdf.getOriginalFilename());
     }
 
     @Override
@@ -111,10 +138,7 @@ public class PDFServiceImpl implements PDFService {
             PdfResult pdfResult = pdfResultRepository.findByJobId(jobId)
                     .orElseGet(() -> {
                         log.warn("No DB record found for jobId={}, creating new one", jobId);
-                        return PdfResult.builder()
-                                .jobId(jobId)
-                                .userId(0L)
-                                .build();
+                        return PdfResult.builder().jobId(jobId).userId(0L).build();
                     });
 
             pdfResult.setStatus(result.getStatus());
@@ -123,8 +147,7 @@ public class PDFServiceImpl implements PDFService {
             pdfResult.setErrorMessage(result.getErrorMessage());
             pdfResultRepository.save(pdfResult);
 
-            log.info("DB updated for jobId={}, status={}, docType={}",
-                    jobId, result.getStatus(), result.getDocumentType());
+            log.info("DB updated jobId={} status={}", jobId, result.getStatus());
 
             String userEmail = userRepository.findById(pdfResult.getUserId())
                     .map(User::getEmail)
@@ -135,7 +158,6 @@ public class PDFServiceImpl implements PDFService {
 
         } catch (Exception e) {
             log.error("Failed to process Kafka result for jobId={}: {}", jobId, e.getMessage(), e);
-
             pdfResultRepository.findByJobId(jobId).ifPresent(r -> {
                 r.setStatus("FAILED");
                 r.setErrorMessage("Processing error: " + e.getMessage());
@@ -146,73 +168,78 @@ public class PDFServiceImpl implements PDFService {
 
     @Override
     public List<PdfResult> getPdfsRelatedToSession(Long sessionId) {
-        List<PdfResult> pdfResults = pdfResultRepository.getPdfResultBySessionId(sessionId);
-
-        return pdfResults.isEmpty() ? List.of() : pdfResults;
+        List<PdfResult> results = pdfResultRepository.getPdfResultBySessionId(sessionId);
+        return results.isEmpty() ? List.of() : results;
     }
 
     @Override
-    public void StoreBySession(MultipartFile pdf, Long sessionId) throws IOException {
-        if (pdf.isEmpty()) {
-            throw new IllegalArgumentException("Uploaded file is empty");
-        }
-
-        String contentType = pdf.getContentType();
-        if (contentType == null || !contentType.equals("application/pdf")) {
-            throw new IllegalArgumentException("Only PDF files are accepted: " + pdf.getOriginalFilename());
-        }
-
-        String originalFilename = pdf.getOriginalFilename();
-        if (originalFilename == null || originalFilename.isBlank()) {
-            throw new IllegalArgumentException("Invalid filename");
-        }
-
-        Path uploadPath = Paths.get(uploadDir);
-        Files.createDirectories(uploadPath);
-
-
-        long userId = SecurityUtils.getCurrentUserId();
-        String jobId = UUID.randomUUID().toString();
-        Path filePath = uploadPath.resolve(jobId + "_" + originalFilename);
-
-        pdf.transferTo(filePath.toFile());
-
-        Session session = sessionRepository.getSessionById(sessionId);
-
-        PdfResult pendingResult = PdfResult.builder()
-                .jobId(jobId)
-                .userId(userId)
-                .filename(originalFilename)
-                .status("PENDING")
-                .documentType(session.getDocumentType().toString())
-                .session(session)
-                .build();
-        pdfResultRepository.save(pendingResult);
-
-        kafkaTemplate.send(
-                pdfRequestTopic,
-                jobId,
-                PDFFilePathAndUserIDDTO.builder()
-                        .jobId(jobId)
-                        .userId(userId)
-                        .pdfFilePath(filePath.toString())
-                        .documentType("PURCHASE_ORDER")
-                        .build()
-        );
-
-        log.info("PDF queued. jobId={}, userId={}, file={}", jobId, userId, originalFilename);
-    }
-
-    @Override
+    @Transactional
     public void deletePdf(Long id) {
-        if (!pdfResultRepository.existsById(id)) {
-            throw new PdfNotFoundException();
+        PdfResult pdf = pdfResultRepository.findById(id)
+                .orElseThrow(PdfNotFoundException::new);
+
+        if (pdf.getFilePath() != null) {
+            fileStorageService.delete(pdf.getFilePath());
         }
+
         pdfResultRepository.deleteById(id);
+        log.info("PDF record and file deleted id={}", id);
     }
 
     @Override
+    @Transactional
     public void bulkDeleteId(List<Long> ids) {
+        List<PdfResult> pdfs = pdfResultRepository.findAllById(ids);
+        pdfs.forEach(pdf -> {
+            if (pdf.getFilePath() != null) {
+                fileStorageService.delete(pdf.getFilePath());
+            }
+        });
+        pdfResultRepository.deleteAllByIdInBatch(ids);
+        log.info("Bulk deleted {} PDF records", ids.size());
+    }
 
+    // ── Private helpers ───────────────────────────────────────
+
+    private void validateFile(MultipartFile pdf) {
+        if (pdf.isEmpty()) throw new IllegalArgumentException("Uploaded file is empty");
+        String ct = pdf.getContentType();
+        if (ct == null || !ct.equals("application/pdf"))
+            throw new IllegalArgumentException("Only PDF files are accepted: " + pdf.getOriginalFilename());
+        String name = pdf.getOriginalFilename();
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("Invalid filename");
+    }
+
+    private int countPages(MultipartFile pdf) {
+        try (PDDocument doc = Loader.loadPDF(pdf.getBytes())) {
+            return doc.getNumberOfPages();
+        } catch (Exception e) {
+            log.warn("Could not count pages for {}: {}", pdf.getOriginalFilename(), e.getMessage());
+            return 1;
+        }
+    }
+
+    private void enforceQuota(User user, int incomingPages) {
+        if (user.getPlan().isUnlimited()) return;
+
+        Instant startOfMonth = YearMonth.now(ZoneOffset.UTC).atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        if (user.getQuotaResetAt() == null || user.getQuotaResetAt().isBefore(startOfMonth)) {
+            user.setPagesUploadedThisMonth(0);
+            user.setQuotaResetAt(startOfMonth);
+        }
+
+        int used = user.getPagesUploadedThisMonth();
+        int limit = user.getPlan().getMonthlyPageLimit();
+        int remaining = limit - used;
+
+        if (incomingPages > remaining) {
+            throw new QuotaExceededException(String.format(
+                    "Monthly page limit reached. Your %s plan allows %d pages/month. " +
+                    "Used: %d, Remaining: %d, This PDF: %d pages. Please upgrade your plan.",
+                    user.getPlan().name(), limit, used, remaining, incomingPages));
+        }
+
+        user.setPagesUploadedThisMonth(used + incomingPages);
+        userRepository.save(user);
     }
 }

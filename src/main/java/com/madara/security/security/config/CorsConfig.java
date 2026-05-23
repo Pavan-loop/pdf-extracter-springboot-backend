@@ -21,7 +21,7 @@ public class CorsConfig {
 
         corsConfiguration.setExposedHeaders(List.of("Location"));
         corsConfiguration.setAllowedMethods(List.of(
-                "GET", "POST", "DELETE", "PUT", "OPTIONS"
+                "GET", "POST", "DELETE", "PUT", "PATCH", "OPTIONS"
         ));
 
         corsConfiguration.setAllowedHeaders(List.of(

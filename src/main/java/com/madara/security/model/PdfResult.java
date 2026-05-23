@@ -49,6 +49,9 @@ public class PdfResult {
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
+    @Column(name = "file_path", length = 1000)
+    private String filePath;
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

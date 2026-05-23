@@ -55,6 +55,21 @@ public class User implements UserDetails, Principal {
     private boolean seededAdmin = false;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "plan", nullable = false)
+    @Builder.Default
+    private Plan plan = Plan.FREE;
+
+    @Column(name = "pages_uploaded_this_month")
+    @Builder.Default
+    private int pagesUploadedThisMonth = 0;
+
+    @Column(name = "quota_reset_at")
+    private Instant quotaResetAt;
+
+    @Column(name = "subscription_expires_at")
+    private Instant subscriptionExpiresAt;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "auth_provider", nullable = false)
     @Builder.Default
     private AuthProvider authProvider = AuthProvider.LOCAL;

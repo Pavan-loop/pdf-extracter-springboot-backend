@@ -16,6 +16,15 @@ public class AdminUserSummaryDTO {
     private String authProvider;
     private boolean accountEnabled;
     private Instant createdAt;
+
+    // Plan
+    private String plan;
+    private boolean unlimited;
+    private int pagesUploadedThisMonth;
+    private int monthlyPageLimit;
+    private String subscriptionExpiresAt;
+
+    // Stats
     private long totalSessions;
     private long totalPdfs;
     private long successPdfs;

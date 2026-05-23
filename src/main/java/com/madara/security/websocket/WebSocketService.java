@@ -14,10 +14,11 @@ public class WebSocketService {
     private final SimpMessagingTemplate messagingTemplate;
 
     public void pushResultToUser(String userEmail, PdfResultDTO result) {
-        log.info("Pushing result via WebSocket to user: {}", userEmail);
+        log.info("Pushing WebSocket result to user={} jobId={} status={}",
+                userEmail, result.getJobId(), result.getStatus());
         messagingTemplate.convertAndSendToUser(
                 userEmail,
-                "/queue/results",
+                "/queue/pdf-result",
                 result
         );
     }

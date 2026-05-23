@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -33,6 +34,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("SELECT u FROM User u JOIN u.roles r WHERE r = :role")
     Page<User> findAllByRole(@Param("role") Role role, Pageable pageable);
+
+    @Query("SELECT u FROM User u WHERE u.plan = 'SUBSCRIBER' AND u.subscriptionExpiresAt < :now")
+    List<User> findExpiredSubscribers(@Param("now") Instant now);
 
     @Query("SELECT u FROM User u WHERE u.seededAdmin = true")
     Optional<User> findSeededAdmin();

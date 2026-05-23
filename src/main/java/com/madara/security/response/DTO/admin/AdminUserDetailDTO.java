@@ -21,6 +21,14 @@ public class AdminUserDetailDTO {
     private Instant createdAt;
     private Instant modifiedAt;
 
+    // Plan
+    private String plan;
+    private boolean unlimited;
+    private int pagesUploadedThisMonth;
+    private int monthlyPageLimit;
+    private int pagesRemaining;
+    private String subscriptionExpiresAt;
+
     // Stats
     private long totalSessions;
     private long totalPdfs;

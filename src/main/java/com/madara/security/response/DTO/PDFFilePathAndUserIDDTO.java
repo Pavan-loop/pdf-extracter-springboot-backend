@@ -13,4 +13,5 @@ public class PDFFilePathAndUserIDDTO {
     private String pdfFilePath;
     private long userId;
     private String documentType;
+    private boolean isSession;
 }

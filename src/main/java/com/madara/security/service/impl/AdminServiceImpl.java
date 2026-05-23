@@ -2,6 +2,7 @@ package com.madara.security.service.impl;
 
 import com.madara.security.Exception.type.UserNotFoundException;
 import com.madara.security.model.AuthProvider;
+import com.madara.security.model.Plan;
 import com.madara.security.model.PdfResult;
 import com.madara.security.model.Role;
 import com.madara.security.model.User;
@@ -13,7 +14,9 @@ import com.madara.security.response.DTO.admin.AdminPdfDTO;
 import com.madara.security.response.DTO.admin.AdminStatsDTO;
 import com.madara.security.response.DTO.admin.AdminUserDetailDTO;
 import com.madara.security.response.DTO.admin.AdminUserSummaryDTO;
+import com.madara.security.response.DTO.admin.UpdatePlanRequest;
 import com.madara.security.service.AdminService;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -29,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.time.temporal.ChronoUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -106,6 +110,10 @@ public class AdminServiceImpl implements AdminService {
                 .map(pdf -> toPdfDto(pdf, user))
                 .collect(Collectors.toList());
 
+        int limit     = user.getPlan().getMonthlyPageLimit();
+        int used      = user.getPagesUploadedThisMonth();
+        int remaining = user.getPlan().isUnlimited() ? Integer.MAX_VALUE : Math.max(0, limit - used);
+
         return AdminUserDetailDTO.builder()
                 .id(user.getId())
                 .name(user.getName())
@@ -117,6 +125,13 @@ public class AdminServiceImpl implements AdminService {
                 .accountEnabled(user.isEnabled())
                 .createdAt(user.getCreatedAt())
                 .modifiedAt(user.getModifiedAt())
+                .plan(user.getPlan().name())
+                .unlimited(user.getPlan().isUnlimited())
+                .pagesUploadedThisMonth(used)
+                .monthlyPageLimit(limit)
+                .pagesRemaining(remaining)
+                .subscriptionExpiresAt(user.getSubscriptionExpiresAt() != null
+                        ? user.getSubscriptionExpiresAt().toString() : null)
                 .totalSessions(sessionRepository.countByUserID(userId))
                 .totalPdfs(pdfResultRepository.countByUserId(userId))
                 .successPdfs(pdfResultRepository.countByUserIdAndStatus(userId, "DONE"))
@@ -170,10 +185,36 @@ public class AdminServiceImpl implements AdminService {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    @Transactional
+    public void updateUserPlan(Long userId, UpdatePlanRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found with id: " + userId));
+
+        Plan newPlan = request.getPlan();
+
+        if (newPlan == Plan.SUBSCRIBER) {
+            if (request.getSubscriptionDays() == null || request.getSubscriptionDays() < 1) {
+                throw new IllegalArgumentException("subscriptionDays is required when upgrading to SUBSCRIBER");
+            }
+            user.setSubscriptionExpiresAt(Instant.now().plus(request.getSubscriptionDays(), ChronoUnit.DAYS));
+        } else {
+            user.setSubscriptionExpiresAt(null);
+        }
+
+        // Reset monthly quota when upgrading/downgrading
+        user.setPlan(newPlan);
+        user.setPagesUploadedThisMonth(0);
+        user.setQuotaResetAt(null);
+        userRepository.save(user);
+    }
+
     // ── Private helpers ───────────────────────────────────────
 
     private AdminUserSummaryDTO toUserSummary(User user) {
         Long uid = user.getId();
+        int limit = user.getPlan().getMonthlyPageLimit();
+        int used  = user.getPagesUploadedThisMonth();
         return AdminUserSummaryDTO.builder()
                 .id(uid)
                 .name(user.getName())
@@ -182,6 +223,12 @@ public class AdminServiceImpl implements AdminService {
                 .authProvider(user.getAuthProvider().name())
                 .accountEnabled(user.isEnabled())
                 .createdAt(user.getCreatedAt())
+                .plan(user.getPlan().name())
+                .unlimited(user.getPlan().isUnlimited())
+                .pagesUploadedThisMonth(used)
+                .monthlyPageLimit(limit)
+                .subscriptionExpiresAt(user.getSubscriptionExpiresAt() != null
+                        ? user.getSubscriptionExpiresAt().toString() : null)
                 .totalSessions(sessionRepository.countByUserID(uid))
                 .totalPdfs(pdfResultRepository.countByUserId(uid))
                 .successPdfs(pdfResultRepository.countByUserIdAndStatus(uid, "DONE"))
